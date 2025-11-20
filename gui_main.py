@@ -61,9 +61,6 @@ class SimpleVideoReceiver(threading.Thread):
                 frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
                 if frame is None:
                     continue
-                # convert to QImage for display using OpenCV -> save to temp file approach avoided
-                # Instead, we will write to a temporary file-less display via QTimer update (we update label pixmap via converting)
-                # To avoid heavy Qt calls from thread, store last_frame and use a QTimer in GUI to poll it
                 self.last_frame = frame
         except Exception as e:
             print('Receiver error', e)
@@ -106,7 +103,6 @@ class SimpleVideoSender(threading.Thread):
                 ret, frame = cap.read()
                 if not ret:
                     break
-                # encode as JPEG
                 ret2, buf = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
                 if not ret2:
                     continue
@@ -126,7 +122,6 @@ class SimpleVideoSender(threading.Thread):
             except Exception:
                 pass
 
-# We need numpy and PyQt pixmap conversion
 import numpy as np
 from PyQt5.QtGui import QImage, QPixmap
 
@@ -221,7 +216,6 @@ class PatientWindow(QWidget):
         btn_schedule = QPushButton('Agendar cita')
         btn_schedule.clicked.connect(self.schedule_appointment)
         layout.addWidget(btn_schedule)
-        # Video area: remote (doctor) and local preview
         self.remote_label = QLabel('Video remoto')
         self.remote_label.setFixedSize(480,270)
         self.remote_label.setAlignment(Qt.AlignCenter)
@@ -235,7 +229,6 @@ class PatientWindow(QWidget):
         layout.addWidget(btn_connect)
         self.setLayout(layout)
         self.list_doctors()
-        # timers for updating frames from receiver
         self._receiver = None
         self._receiver_frame = None
         self._receiver_timer = QTimer()
@@ -268,16 +261,16 @@ class PatientWindow(QWidget):
         cur = self.doctors_list.currentItem()
         if not cur: QMessageBox.warning(self,'Error','Seleccione un médico'); return
         doctor_id = cur.text().split(' - ')[0]
-        # Start av_call client to receive doctor's stream (existing behavior)
-        self.av_client = av_call.av_client('127.0.0.1', self.remote_label, 480, 270)
+
+        doctor_ip = "172.20.10.3"
+        
+
+        self.av_client = av_call.av_client(doctor_ip, self.remote_label, 480, 270)
         threading.Thread(target=self.av_client.connect, daemon=True).start()
-        # Start local preview and sender to doctor's receiver port (7000)
-        self._sender = SimpleVideoSender('127.0.0.1', port=7000, cam_index=0, fps=10)
+
+        self._sender = SimpleVideoSender(doctor_ip, port=7000, cam_index=0, fps=10)
         self._sender.start()
-        # Start a small receiver to get remote frames if doctor provides via custom receiver
-        # we will attempt to connect to doctor's custom receiver on port 7001 (doctor-side)
-        # but to keep compatibility we poll only av_client for remote frames; additionally we show local preview
-        # Start local camera preview timer
+
         self._cap = cv2.VideoCapture(0)
         self._preview_timer = QTimer()
         self._preview_timer.timeout.connect(self._update_local_preview)
@@ -296,7 +289,6 @@ class PatientWindow(QWidget):
             self.local_label.setPixmap(pix)
 
     def _update_remote_frame(self):
-        # if we had a separate receiver, we'd update from it; for now av_client displays directly on the QLabel
         pass
 
 class DoctorWindow(QWidget):
@@ -312,7 +304,6 @@ class DoctorWindow(QWidget):
         self.appt_list = QListWidget(); layout.addWidget(QLabel('Citas agendadas:')); layout.addWidget(self.appt_list)
         btn_refresh = QPushButton('Listar citas'); btn_refresh.clicked.connect(self.list_appointments); layout.addWidget(btn_refresh)
         btn_wait = QPushButton('Iniciar servidor AV (esperar paciente)'); btn_wait.clicked.connect(self.start_av_server); layout.addWidget(btn_wait)
-        # area to show patient incoming video (from SimpleVideoSender)
         self.remote_patient_label = QLabel('Video paciente (si se conecta)')
         self.remote_patient_label.setFixedSize(480,270)
         self.remote_patient_label.setAlignment(Qt.AlignCenter)
@@ -336,15 +327,10 @@ class DoctorWindow(QWidget):
             self.appt_list.addItem('Error cargando citas')
 
     def start_av_server(self):
-        # Start original av_call server (video->patient)
         self.vw = VideoWindow('medico', self.doctor_id)
         self.vw.show()
-        # Start our custom receiver to accept incoming patient video on port 7000
-        self._receiver = SimpleVideoReceiver(self.remote_patient_label, host='0.0.0.0', port=7000)
-        # Patch receiver to expose last_frame and start a timer to update label
-        self._receiver.last_frame = None
+
         def receiver_loop():
-            # run receiver; when frames arrive, set last_frame on object
             try:
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,1)
@@ -372,19 +358,18 @@ class DoctorWindow(QWidget):
                     nparr = np.frombuffer(frame_data, np.uint8)
                     frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
                     if frame is None: continue
-                    # convert and set pixmap
                     frame = cv2.resize(frame, (480,270))
                     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     h,w,ch = rgb.shape
                     bytes_per_line = ch*w
                     img = QImage(rgb.data, w, h, bytes_per_line, QImage.Format_RGB888)
                     pix = QPixmap.fromImage(img)
-                    # update QLabel in main thread via Qt's single-shot
                     def set_pix():
                         self.remote_patient_label.setPixmap(pix)
                     QTimer.singleShot(0, set_pix)
             except Exception as e:
                 print('Receiver error', e)
+
         threading.Thread(target=receiver_loop, daemon=True).start()
 
     def _poll_receiver_frame(self):
@@ -423,3 +408,5 @@ def main():
 
 if __name__=='__main__':
     main()
+
+
