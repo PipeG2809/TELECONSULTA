@@ -265,10 +265,10 @@ class PatientWindow(QWidget):
         doctor_ip = "172.20.10.3"
         
 
-        self.av_client = av_call.av_client(doctor_ip, self.remote_label, 480, 270)
+        self.av_client = av_call.av_client('172.20.10.3', self.remote_label, 480, 270)
         threading.Thread(target=self.av_client.connect, daemon=True).start()
 
-        self._sender = SimpleVideoSender(doctor_ip, port=7000, cam_index=0, fps=10)
+        self._sender = SimpleVideoSender('172.20.10.3', port=7000, cam_index=0, fps=10)
         self._sender.start()
 
         self._cap = cv2.VideoCapture(0)
@@ -408,5 +408,6 @@ def main():
 
 if __name__=='__main__':
     main()
+
 
 
