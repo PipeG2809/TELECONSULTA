@@ -1,0 +1,6 @@
+sebastian,12345,patient,00000,192.168.1.10
+pipe,1234,doctor,123,192.168.1.10
+jero,1111,doctor,123,
+FELIPE,1095551391,doctor,12345,
+jeronimo,9999,patient,1234,
+felipe,24607202,doctor,1234,127.0.0.1
